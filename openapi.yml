@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: "SERVERware"
-  version: "4.8"
+  version: "5.0"
   description: "Documentation for the SERVERware API."
   
 externalDocs:
@@ -169,6 +169,9 @@ paths:
       tags:
         - users
       summary: "Get a list of users"
+      parameters:
+        - $ref: "#/components/parameters/UserDownload"
+        - $ref: "#/components/parameters/UserScope"
       responses:
         '200':
           $ref: "#/components/responses/UserResponseMultiple"
@@ -1109,12 +1112,21 @@ paths:
 
               Temp and run directories must be at least 64MB each.
 
+              To let SERVERware decide the best host for the vps, create it with host_id set to 0.
+
+              VPS name can only consist of the following characters: uppercase(A-Z) and lowercase(a-z) letters, underscore(_) and hyphen(-).
+
               Resource limits can be one of the following:
                 - cpu_share: must match value set in flavor
                 - mem_limit: must match value set in flavor
                 - cpu_limit: 1, 2, 4, 8, 12, 16, 24, 32, 64
                 - io_limit: 1, 5, 10, 20, 30, 40, 50, 75 (MB/s)
-                - read_iops_limit and write_iops_limit combined: 100, 200, 300, 500, 1000              
+                - read_iops_limit and write_iops_limit combined: 100, 200, 300, 500, 1000
+
+              Possible storage protocols for exporting volume:
+                - direct (for standalone edition or processing host with local storage)
+                - iscsi
+                - nvme
       requestBody:
         $ref: "#/components/requestBodies/VpsCreateRequest"
       responses:
@@ -1132,7 +1144,7 @@ paths:
             Failed to create VPS:
               - engine type must be 'KVM' for 'COMMUNITY' and 'OCI' VPSes
               - must provide engine type, 'lxc' or 'kvm'
-              - name must not be empty
+              - Invalid VPS name
               - VPS name already in use
               - root password must be at least 8 characters long
               - Template and OS ID can not be both specified
@@ -1147,14 +1159,20 @@ paths:
               - Memory size must match value set in flavor
               - CPULimit must be one of: 0 (unlimited), 1, 2, 4, 8, 12, 16, 24, 32, 64
               - I/O limit must be one of: 0 (unlimited), 1, 5, 10, 20, 30, 40, 50, 75 MB/s
-              - IOPS limit must be one of: 0 (unlimited), 100, 200, 300, 500, 1000            
+              - IOPS limit must be one of: 0 (unlimited), 100, 200, 300, 500, 1000
+              - AstDb value must be one of: 0 (not in use), 4, 8, 16, 32, 64
+              - Call Recordings value must be one of: 0 (not in use), 16, 32, 64, 128, 256, 512
+              - Selected host doesn't support running VPSes
+              - Unable to find host
+              - Undefined storage protocol
+              - Direct storage protocol must be set for Standalone edition
+              - Can't set direct storage protocol for Mirror and Cluster editions
         '403':
           description: "Insufficient Permissions!"
         '406': 
           description: |
             Failed to create VPS:
               - number of VPSs reached license limit
-              - KVM is not licensed
               - number of partition VPSs exceeds the partition quota
               - partition memory quota exceeded
               - partition storage quota exceeded
@@ -1217,8 +1235,11 @@ paths:
                 - Temporary and Run directory size
                 - Backup
                 - Protected mode
-                
-                All other fields must remain the same.                
+
+                For PBXware VPSes RAM disk fields can be edited also:
+                - ASTDB
+                - Call recordings
+                All other fields must remain the same.
       requestBody:
         $ref: "#/components/requestBodies/VpsEditRequest"
       responses:
@@ -1232,7 +1253,7 @@ paths:
               - must provide engine type, 'lxc' or 'kvm'
               - Selected properties cannot be changed while using KVM engine until the VPS is stopped
               - Invalid VPS UUID
-              - name must not be empty
+              - Invalid VPS name
               - The specified VPS name is already in use!
               - root password must be at least 8 characters long
               - Template and OS ID can not be both specified
@@ -1245,13 +1266,14 @@ paths:
               - Memory size must match value set in flavor
               - CPULimit must be one of: 0 (unlimited), 1, 2, 4, 8, 12, 16, 24, 32, 64
               - I/O limit must be one of: 0 (unlimited), 1, 5, 10, 20, 30, 40, 50, 75 MB/s
-              - IOPS limit must be one of: 0 (unlimited), 100, 200, 300, 500, 1000            
+              - IOPS limit must be one of: 0 (unlimited), 100, 200, 300, 500, 1000
+              - AstDb value must be one of: 0 (not in use), 4, 8, 16, 32, 64
+              - Call Recordings value must be one of: 0 (not in use), 16, 32, 64, 128, 256, 512
         '403':
           description: "Insufficient Permissions!"
         '406':
           description: |
                       Failed to edit VPS:
-                        - KVM is not licensed
                         - /tmp directory must be at least 64MB
                         - /run directory must be at least 64MB                      
         '500':
@@ -1579,6 +1601,42 @@ paths:
       security:
         - apiKey: []
 
+  '/networks/1/vpses/{vpsid}/chgstorproto':
+    post:
+      tags:
+        - vps manage
+      parameters:
+        - $ref: "#/components/parameters/VpsId"
+      summary: "Change VPS storage protocol"
+      requestBody:
+        $ref: "#/components/requestBodies/ChangeStorageProtocolRequest"
+      responses:
+        '202':
+          description: "Accepted"
+        '400':
+          description: |
+                      Failed to change VPS storage protocol:
+                        - invalid payload
+                        - new owner ID assertion failed
+                        - old protocol assertion failed
+                        - new protocol assertion failed
+                        - unsupported old protocol
+                        - unsupported new protocol
+                        - new protocol is same as the existing one
+        '404':
+          description: |
+                      Failed to change VPS storage protocol:
+                        - no VPS with specified ID
+        '409':
+          description: |
+                      Failed to change VPS storage protocol
+                        - Changing VPS storage protocol is allowed only when VPS is stopped!
+                        - storage location is local
+        '500':
+          description: "Failed to change VPS storage protocol"
+      security:
+        - apiKey: []
+
   '/partitions/{partitionid}/vpses':
     get:
       tags:
@@ -1610,12 +1668,19 @@ paths:
 
               Temp and run directories must be at least 64MB each.
 
+              VPS name can only consist of the following characters: uppercase(A-Z) and lowercase(a-z) letters, underscore(_) and hyphen(-).
+
               Resource limits can be one of the following:
                 - cpu_share: must match value set in flavor
                 - mem_limit: must match value set in flavor
                 - cpu_limit: 1, 2, 4, 8, 12, 16, 24, 32, 64
                 - io_limit: 1, 5, 10, 20, 30, 40, 50, 75 (MB/s)
-                - read_iops_limit and write_iops_limit combined: 100, 200, 300, 500, 1000              
+                - read_iops_limit and write_iops_limit combined: 100, 200, 300, 500, 1000
+
+              Possible storage protocols for exporting volume:
+                - direct (for standalone edition or processing host with local storage)
+                - iscsi
+                - nvme
       requestBody:
         $ref: "#/components/requestBodies/VpsCreateRequest"
       responses:
@@ -1633,7 +1698,7 @@ paths:
             Failed to create VPS:
               - engine type must be 'KVM' for 'COMMUNITY' and 'OCI' VPSes
               - must provide engine type, 'lxc' or 'kvm'
-              - name must not be empty
+              - Invalid VPS name
               - VPS name already in use
               - root password must be at least 8 characters long
               - Template and OS ID can not be both specified
@@ -1648,14 +1713,16 @@ paths:
               - Memory size must match value set in flavor
               - CPULimit must be one of: 0 (unlimited), 1, 2, 4, 8, 12, 16, 24, 32, 64
               - I/O limit must be one of: 0 (unlimited), 1, 5, 10, 20, 30, 40, 50, 75 MB/s
-              - IOPS limit must be one of: 0 (unlimited), 100, 200, 300, 500, 1000            
+              - IOPS limit must be one of: 0 (unlimited), 100, 200, 300, 500, 1000
+              - Undefined storage protocol
+              - Direct storage protocol must be set for Standalone edition
+              - Can't set direct storage protocol for Mirror and Cluster editions
         '403':
           description: "Insufficient Permissions!"
         '406': 
           description: |
             Failed to create VPS:
               - number of VPSs reached license limit
-              - KVM is not licensed
               - number of partition VPSs exceeds the partition quota
               - partition memory quota exceeded
               - partition storage quota exceeded
@@ -1711,11 +1778,16 @@ paths:
                 - Engine Type
                 - Password
                 - Flavor (making sure limit values match the ones for the chosen flavor)
-                
-                All other fields must remain the same.                
+
+                For PBXware VPSes RAM disk fields can be edited also:
+                - ASTDB
+                - Call recordings
+                All other fields must remain the same.
       tags:
         - vps manage
       summary: "Edit VPS"
+      requestBody:
+        $ref: "#/components/requestBodies/VpsEditRequest"
       responses:
         '202':
           $ref: "#/components/responses/VpsResponseSingle"
@@ -1727,7 +1799,7 @@ paths:
               - must provide engine type, 'lxc' or 'kvm'
               - Selected properties cannot be changed while using KVM engine until the VPS is stopped
               - Invalid VPS UUID
-              - name must not be empty
+              - Invalid VPS name
               - The specified VPS name is already in use!
               - root password must be at least 8 characters long
               - Template and OS ID can not be both specified
@@ -1746,7 +1818,6 @@ paths:
         '406':
           description: |
                       Failed to edit VPS:
-                        - KVM is not licensed
                         - /tmp directory must be at least 64MB
                         - /run directory must be at least 64MB                      
         '500':
@@ -1965,6 +2036,48 @@ paths:
                       Failed to change VPS owner:
                         - old owner ID assertion failed
                         - new owner ID assertion failed
+      security:
+        - apiKey: []
+
+  '/partitions/{partitionid}/vpses/{vpsid}/chgstorproto':
+    post:
+      tags:
+        - vps manage
+      parameters:
+        - $ref: "#/components/parameters/VpsId"
+        - $ref: "#/components/parameters/PartitionId"
+      summary: "Change VPS storage protocol"
+      requestBody:
+        $ref: "#/components/requestBodies/ChangeStorageProtocolRequest"
+      responses:
+        '202':
+          description: "Accepted"
+        '400':
+          description: |
+                      Failed to change VPS storage protocol:
+                        - invalid payload
+                        - no VPS with specified ID
+                        - invalid partition ID format
+                        - no partition with specified ID
+                        - VPS does not belong to specified partition
+                        - new owner ID assertion failed
+                        - old protocol assertion failed
+                        - new protocol assertion failed
+                        - unsupported old protocol
+                        - unsupported new protocol
+                        - new protocol is same as the existing one
+        '404':
+          description: |
+                      Failed to change VPS storage protocol:
+                        - no VPS with specified ID
+                        - no partition with specified ID
+        '409':
+          description: |
+                      Failed to change VPS storage protocol
+                        - Changing VPS storage protocol is allowed only when VPS is stopped!
+                        - storage location is local
+        '500':
+          description: "Failed to change VPS storage protocol"
       security:
         - apiKey: []
 
@@ -3551,6 +3664,18 @@ components:
       required: true
       schema:
         type: string
+    UserDownload:
+      in: query
+      name: download
+      description: "Use CSV to download a list of partition users in CSV format"
+      schema:
+        type: string
+    UserScope:
+      in: query
+      name: scope
+      description: "Use partition to get a list for partition users and the partitions they belong to"
+      schema:
+        type: string
     TokenId:
       in: path
       name: tokenid
@@ -3864,11 +3989,11 @@ components:
             properties:
               src_host_id:
                 type: integer
-                descritpion: "Source host ID"
+                description: "Source host ID"
                 default: 1
               dest_host_id:
                 type: integer
-                descritpion: "Destination host ID"
+                description: "Destination host ID"
                 default: 2
 
     ChangeVpsDomain:
@@ -3879,11 +4004,11 @@ components:
             properties:
               src_partition_id:
                 type: integer
-                descritpion: "Source partition ID"
+                description: "Source partition ID"
                 default: 1
               dest_partition_id:
                 type: integer
-                descritpion: "Destination partition ID"
+                description: "Destination partition ID"
                 default: 2
 
     ChangeVpsOwner:
@@ -3894,11 +4019,11 @@ components:
             properties:
               old_owner_id:
                 type: integer
-                descritpion: "Old owner ID"
+                description: "Old owner ID"
                 default: 1
               new_owner_id:
                 type: integer
-                descritpion: "New owner ID"
+                description: "New owner ID"
                 default: 2
 
     VPSInterfaceCreate:
@@ -3939,6 +4064,21 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Snapshot"
+
+    ChangeStorageProtocolRequest:
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              old_storage_protocol:
+                type: string
+                description: "Old storage protocol"
+                default: "iscsi"
+              new_storage_protocol:
+                type: string
+                description: "New storage protocol"
+                default: "nvme"
 
   responses:
     UserResponseMultiple:
@@ -5305,6 +5445,14 @@ components:
               - $ref: "#/components/schemas/OciImage"
               - $ref: "#/components/schemas/OciTag"
               - $ref: "#/components/schemas/OciVolumeMapping"
+        storage_protocol:
+          type: string
+          enum:
+           - direct
+           - iscsi
+           - nvme
+          description: "Storage protocol for exporting volume"
+          default: "direct"
 
     VpsEdit:
       type: object
@@ -6356,6 +6504,13 @@ components:
             - LOCAL
             - NETWORK
           description: Location of the storage (local or network)
+        storage_protocol:
+          type: string
+          enum:
+           - direct
+           - iscsi
+           - nvme
+          description: Storage protocol for exporting volume
         type:
           type: string
           enum:
